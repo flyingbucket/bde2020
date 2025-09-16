@@ -161,6 +161,7 @@ services:
     memswap_limit: 2g
     volumes:
       - ./profile.d/hadoop-path.sh:/etc/profile.d/hadoop-path.sh:ro
+      - ./profile.d/spark-path.sh:/etc/profile.d/spark-path.sh:ro
       - ./spark-apps:/opt/spark-apps
     depends_on:
       - resourcemanager
