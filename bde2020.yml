@@ -1,0 +1,149 @@
+version: "3"
+
+services:
+  # ===================== HDFS =====================
+  namenode:
+    image: bde2020/hadoop-namenode:latest
+    container_name: namenode
+    environment:
+      - CLUSTER_NAME=test-cluster
+      - HDFS_CONF_dfs_replication=1
+      # JVM 内存（堆 + 元空间 + 直接内存）设上限，避免意外 OOM
+      - HADOOP_HEAPSIZE=256
+      - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 4096
+    mem_limit: 2g
+    memswap_limit: 3g
+    volumes:
+      - namenode-data:/hadoop/dfs/name
+    ports:
+      - "9870:9870" # NN Web UI
+      - "9000:9000" # HDFS RPC
+
+  datanode1:
+    image: bde2020/hadoop-datanode:latest
+    container_name: datanode1
+    environment:
+      - CLUSTER_NAME=test-cluster
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HADOOP_HEAPSIZE=256
+      - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 4096
+    mem_limit: 2g
+    memswap_limit: 3g
+    depends_on:
+      - namenode
+    volumes:
+      - datanode1-data:/hadoop/dfs/data
+    ports:
+      - "9864:9864" # DN Web UI
+
+  # ===================== YARN =====================
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:latest
+    container_name: resourcemanager
+    env_file:
+      - ./hadoop.env
+    environment:
+      - HADOOP_HEAPSIZE=256
+      - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
+      # 可选：使用 CapacityScheduler（和你原来的 bde2020.yml 一致）
+      - YARN_RESOURCEMANAGER_OPTS=-Dyarn.resourcemanager.scheduler.class=org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 4096
+    mem_limit: 1g
+    memswap_limit: 2g
+    depends_on:
+      - namenode
+      - datanode1
+    ports:
+      - "8088:8088" # YARN RM UI
+
+  nodemanager1:
+    image: bde2020/hadoop-nodemanager:latest
+    container_name: nodemanager1
+    env_file:
+      - ./hadoop.env
+    environment:
+      - HADOOP_HEAPSIZE=256
+      - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
+      # 限小 NM 可用资源，避免容器抢太多内存
+      - YARN_NODEMANAGER_RESOURCE_MEMORY_MB=1024
+      - YARN_NODEMANAGER_RESOURCE_CPU_VCORES=1
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 4096
+    mem_limit: 1.5g
+    memswap_limit: 2g
+    depends_on:
+      - resourcemanager
+    ports:
+      - "8042:8042" # NM UI
+
+  # ===================== History / Timeline =====================
+  historyserver:
+    image: bde2020/hadoop-historyserver:latest
+    container_name: historyserver
+    env_file:
+      - ./hadoop.env
+    environment:
+      - HADOOP_HEAPSIZE=256
+      - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 4096
+    mem_limit: 768m
+    memswap_limit: 1g
+    depends_on:
+      - resourcemanager
+    ports:
+      - "8188:8188" # Timeline Server UI
+      - "19888:19888" # MR JobHistory UI
+
+  # ===================== Spark Client =====================
+  spark-client:
+    image: bde2020/spark-base:latest
+    container_name: spark-client
+    env_file:
+      - ./hadoop.env
+    environment:
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - YARN_CONF_DIR=/etc/hadoop
+      - SPARK_HOME=/spark
+      - SPARK_EVENTLOG_ENABLED=true
+      - SPARK_EVENTLOG_DIR=hdfs:///spark-logs
+      # 也限制一下 JVM
+      - HADOOP_HEAPSIZE=256
+      - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 4096
+    mem_limit: 1g
+    memswap_limit: 2g
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+    depends_on:
+      - resourcemanager
+    stdin_open: true
+    tty: true
+
+volumes:
+  namenode-data:
+  datanode1-data:
