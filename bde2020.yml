@@ -6,6 +6,7 @@ services:
     image: bde2020/hadoop-namenode:latest
     container_name: namenode
     environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
       - CLUSTER_NAME=test-cluster
       - HDFS_CONF_dfs_replication=1
       # JVM 内存（堆 + 元空间 + 直接内存）设上限，避免意外 OOM
@@ -23,11 +24,15 @@ services:
     ports:
       - "9870:9870" # NN Web UI
       - "9000:9000" # HDFS RPC
+    stop_grace_period: 30s
 
   datanode1:
     image: bde2020/hadoop-datanode:latest
     container_name: datanode1
     environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      # 关键：等 NN 的 WebUI 就绪再启动 DN（避免“起来就连不上”）
+      - SERVICE_PRECONDITION=namenode:9870
       - CLUSTER_NAME=test-cluster
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
       - HADOOP_HEAPSIZE=256
@@ -45,6 +50,7 @@ services:
       - datanode1-data:/hadoop/dfs/data
     ports:
       - "9864:9864" # DN Web UI
+    stop_grace_period: 30s
 
   # ===================== YARN =====================
   resourcemanager:
@@ -53,6 +59,7 @@ services:
     env_file:
       - ./hadoop.env
     environment:
+      - SERVICE_PRECONDITION=namenode:9870 datanode1:9864
       - HADOOP_HEAPSIZE=256
       - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
       # 可选：使用 CapacityScheduler（和你原来的 bde2020.yml 一致）
@@ -69,6 +76,7 @@ services:
       - datanode1
     ports:
       - "8088:8088" # YARN RM UI
+    stop_grace_period: 30s
 
   nodemanager1:
     image: bde2020/hadoop-nodemanager:latest
@@ -76,6 +84,7 @@ services:
     env_file:
       - ./hadoop.env
     environment:
+      - SERVICE_PRECONDITION=resourcemanager:8088
       - HADOOP_HEAPSIZE=256
       - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
       # 限小 NM 可用资源，避免容器抢太多内存
@@ -92,6 +101,7 @@ services:
       - resourcemanager
     ports:
       - "8042:8042" # NM UI
+    stop_grace_period: 30s
 
   # ===================== History / Timeline =====================
   historyserver:
@@ -100,6 +110,7 @@ services:
     env_file:
       - ./hadoop.env
     environment:
+      - SERVICE_PRECONDITION=namenode:9870 resourcemanager:8088
       - HADOOP_HEAPSIZE=256
       - HADOOP_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=256m -XX:MaxDirectMemorySize=256m
     ulimits:
@@ -114,6 +125,7 @@ services:
     ports:
       - "8188:8188" # Timeline Server UI
       - "19888:19888" # MR JobHistory UI
+    stop_grace_period: 30s
 
   # ===================== Spark Client =====================
   spark-client:
@@ -143,6 +155,7 @@ services:
       - resourcemanager
     stdin_open: true
     tty: true
+    stop_grace_period: 30s
 
 volumes:
   namenode-data:
